@@ -1,0 +1,47 @@
+I used OpenSSL for S/MIME over GPG as it is more familiar.
+First we start by generating private key for Alice and creating a signed certificate using these commands:
+
+openssl genpkey -algorithm RSA -out alice_private.key -pkeyopt rsa_keygen_bits:2048
+openssl req -new -x509 -key alice_private.key -out alice_cert.pem -days 365 -subj "/CN=Alice/emailAddress=alice@hotmail.com"
+
+Now we do the same for Bob to establish the identities of these two people:
+
+openssl genpkey -algorithm RSA -out bob_private.key -pkeyopt rsa_keygen_bits:2048
+openssl req -new -x509 -key bob_private.key -out bob_cert.pem -days 365 -subj "/CN=Bob/emailAddress=bob@hotmail.com"
+
+Now we create a message that Alice sends to Bob:
+
+echo "(confidential)-Hello Bobby-(confidential)" > original_message.txt
+
+Now Alice needs to sign this message with her digital signature:
+
+openssl smime -sign -in original_message.txt -signer alice_cert.pem -inkey alice_private.key -out signed_message.pem -text
+openssl smime -sign -in original_message.txt -signer alice_cert.pem -inkey alice_private.key -out signed_message.pem -outform PEM -nodetach
+
+
+And encrypt it for Bob:
+
+openssl smime -encrypt -in signed_message.pem -out signed_message.asc -outform PEM bob_cert.pem
+
+Bob receives the encrypted communication and starts decrypting it:
+
+openssl smime -decrypt -in signed_message.asc -recip bob_cert.pem -inkey bob_private.key -out decrypted_signed_message.pem
+
+openssl cms -decrypt -in signed_message.asc -recip bob_cert.pem -inkey bob_private.key -out decrypted_signed_message.pem
+
+This is where I got struck. The decryption command got error:
+
+Error reading SMIME Content Info
+E0370000:error:068000D1:asn1 encoding routines:SMIME_read_ASN1_ex:no content type:../openssl-3.2.4/crypto/asn1/asn_mime.c:422:
+
+This error states that OpenSSL doesn’t recognize signed_message.asc as a valid S/MIME-encoded message. I even checked the headers for signed_message.asc and it seems to be the correct format:
+-----BEGIN PKCS7-----
+MIIKNQYJKoZIhvcNAQcDoIIKJjCCCiICAQAxggFiMIIBXgIBADBGMC4xDDAKBgNV
+BAMMA0JvYjEeMBwGCSqGSIb3DQEJARYPYm9iQGhvdG1haWwuY29tAhRxh+CwuhDa
+IbLuAEfCBIJbiNhOUDANBgkqhkiG9w0BAQEFAASCAQBvyiUKk53DrVFwe2YNUl16
+NuiN6fwtzivSLoDtoRSLU8Qd08FXpXQ0OsC9NdwBsSeVfW+Gp4nbOb7p0pVhq5Oz
+
+But the error persists and I was unable to get past it.
+
+In general the digital signature validates the sender by showing that the message was signed by sender's private key that only they have access to.
+The recipient can use the sender's public key to verify the signature ensuring sender authenticity and sees that the message has not been altered ensuring integrity. 
